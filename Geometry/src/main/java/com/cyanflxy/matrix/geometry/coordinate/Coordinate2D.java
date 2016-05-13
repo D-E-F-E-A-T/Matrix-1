@@ -24,31 +24,35 @@ import com.cyanflxy.matrix.geometry.util.BaseUtils;
  */
 public class Coordinate2D extends View implements View.OnTouchListener {
 
+    private static final int MAX_UNIT_SCALE = 32;// 缩放最大倍数
+    private static final int ARROW_ANGLE = 40;//坐标轴箭头的角度
+    private final int STANDARD_UNIT_LENGTH;//标准单位长度定义
     private final int INDICATOR_LENGTH;//指示器长度
 
-    // 单位长度指示
-    private float unit; // 当前一个单位值的大小
-    private float unitLength;// 一个单位值的长度
-    private final int UNIT_INDICATOR_LEFT;
-    private final int UNIT_INDICATOR_BOTTOM;
-    private static final int ARROW_ANGLE = 40;//箭头的角度
+    private final int UNIT_INDICATOR_LEFT; // 单位长度指示器左边距
+    private final int UNIT_INDICATOR_BOTTOM;//单位长度指示器底边距
 
+    // View属性
     private int width;
     private int height;
 
-    private PointF original;
-
+    // 坐标系绘图属性
+    private int unitBase;//单位长度遵循 1,2,5,10 的规律增减，该值记录当前进度
+    private int unitScale;// 单位长度的指数
+    private float unitLength;// 一个单位值的长度
+    private PointF original;//原点位置
     private boolean drawDashGrid = true;// 是否绘制网格虚线
 
+    // 坐标系绘图
     private Paint coordinatePaint;
     private Paint gridLinePaint;
     private int textHeight;
 
-    private GestureDetector gestureDetector;
-
-    // Fling动画
+    // 手势
     private Scroller scroller;
-    protected ObjectAnimator animator;
+    private ObjectAnimator animator;
+    private GestureDetector gestureDetector;
+    private float lastPointDistance;// 缩放时，上次两指间距离
 
     public Coordinate2D(Context context) {
         this(context, null);
@@ -63,11 +67,14 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         // 网格虚线不能使用硬件加速
         setLayerType(LAYER_TYPE_SOFTWARE, null);
 
+        STANDARD_UNIT_LENGTH = BaseUtils.dp2px(context, 30);
         INDICATOR_LENGTH = BaseUtils.dp2px(context, 4);
-        unit = 1;
-        unitLength = BaseUtils.dp2px(context, 35);
         UNIT_INDICATOR_LEFT = BaseUtils.dp2px(context, 15);
         UNIT_INDICATOR_BOTTOM = BaseUtils.dp2px(context, 15);
+
+        unitBase = 1;
+        unitScale = 0;
+        unitLength = STANDARD_UNIT_LENGTH;
 
         coordinatePaint = new Paint();
         coordinatePaint.setColor(Color.RED);
@@ -108,6 +115,45 @@ public class Coordinate2D extends View implements View.OnTouchListener {
      */
     public void setDashGridVisible(boolean show) {
         drawDashGrid = show;
+    }
+
+    public boolean canScaleLarge() {
+        return unitScale < MAX_UNIT_SCALE;
+    }
+
+    public boolean canScaleSmall() {
+        return unitScale > -MAX_UNIT_SCALE;
+    }
+
+    /**
+     * 进行下一级放大
+     */
+    public void setNextScaleLarge() {
+        if (unitBase == 5) {
+            setScale(2.5f);
+        } else {
+            setScale(2);
+        }
+    }
+
+    /**
+     * 进行下一级缩小
+     */
+    public void setNextScaleSmall() {
+        if (unitBase == 2) {
+            setScale(0.4f);
+        } else {
+            setScale(0.5f);
+        }
+    }
+
+    /**
+     * 以屏幕中心为基点，将坐标系缩放一定倍数
+     *
+     * @param scale 缩放倍数，
+     */
+    public void setScale(float scale) {
+        setScale(scale, width / 2f, height / 2f);
     }
 
     @Override
@@ -200,7 +246,7 @@ public class Coordinate2D extends View implements View.OnTouchListener {
             canvas.drawLine(left, indicatorYLoc - INDICATOR_LENGTH, left, indicatorYLoc, coordinatePaint);
 
             if (i != 0) {
-                String indicator = "" + i;
+                String indicator = getUnitString(i);
                 float indicatorWidth = coordinatePaint.measureText(indicator);
                 canvas.drawText(indicator, left - indicatorWidth / 2, stringYLoc, coordinatePaint);
 
@@ -228,7 +274,7 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         int max = (int) (oy / unitLength);
 
         int large = Math.max(Math.abs(min), Math.abs(max));
-        float largeWidth = coordinatePaint.measureText("" + large);
+        float largeWidth = coordinatePaint.measureText("-" + large);
         final int text_padding = 5;
 
         if (ox < largeWidth) {
@@ -277,7 +323,7 @@ public class Coordinate2D extends View implements View.OnTouchListener {
             canvas.drawLine(indicatorXLoc - INDICATOR_LENGTH, top, indicatorXLoc, top, coordinatePaint);
 
             if (i != 0) {
-                String indicator = "" + i;
+                String indicator = getUnitString(i);
 
                 canvas.drawText(indicator, stringXLoc, top + textHeight / 2, coordinatePaint);
 
@@ -302,14 +348,22 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         canvas.drawLine(UNIT_INDICATOR_LEFT, unitIndicatorHeight, UNIT_INDICATOR_LEFT, unitIndicatorHeight - INDICATOR_LENGTH, coordinatePaint);
         canvas.drawLine(UNIT_INDICATOR_LEFT + unitLength, unitIndicatorHeight, UNIT_INDICATOR_LEFT + unitLength, unitIndicatorHeight - INDICATOR_LENGTH, coordinatePaint);
 
-        String indicatorString = "" + unit;
+        String indicatorString = getUnitString(1);
         float indicatorWidth = coordinatePaint.measureText(indicatorString);
         canvas.drawText(indicatorString, UNIT_INDICATOR_LEFT + (unitLength - indicatorWidth) / 2, unitIndicatorHeight - decent, coordinatePaint);
     }
 
     @Override
     public boolean onTouch(View v, MotionEvent event) {
-        gestureDetector.onTouchEvent(event);
+
+        int count = event.getPointerCount();
+
+        if (count == 2) {
+            processScaleEvent(event);
+        } else if (count == 1) {
+            gestureDetector.onTouchEvent(event);
+        }
+
         return true;
     }
 
@@ -366,4 +420,138 @@ public class Coordinate2D extends View implements View.OnTouchListener {
             scroller.forceFinished(true);
         }
     }
+
+    private void processScaleEvent(MotionEvent event) {
+
+        float x0 = event.getX(0);
+        float y0 = event.getY(0);
+        float x1 = event.getX(1);
+        float y1 = event.getY(1);
+        float dx = x1 - x0;
+        float dy = y1 - y0;
+        float dis = (float) Math.sqrt(dx * dx + dy * dy);
+
+        int action = event.getAction() & MotionEvent.ACTION_MASK;
+
+        if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            lastPointDistance = dis;
+        } else if (action == MotionEvent.ACTION_MOVE) {
+
+            float scale = (dis / lastPointDistance);
+            lastPointDistance = dis;
+
+            float cx = (x1 + x0) / 2;
+            float cy = (y1 + y0) / 2;
+
+            setScale(scale, cx, cy);
+        }
+    }
+
+    /**
+     * 以(cx,cy)为基点，缩放坐标系scale倍。
+     * (cx,cy)中心在屏幕位置的坐标
+     */
+    private void setScale(float scale, float cx, float cy) {
+        if (scale == 1 || Math.abs(unitScale) >= MAX_UNIT_SCALE) {
+            return;
+        }
+
+        float dx = cx - original.x;
+        float dy = cy - original.y;
+        float scaleToX = dx * scale;
+        float scaleToY = dy * scale;
+        float tx = cx - scaleToX;
+        float ty = cy - scaleToY;
+        original.set(tx, ty);
+
+        unitLength = unitLength * scale;
+
+        if (scale > 1) {
+            float limit = unitBase == 5 ? 2.5f : 2;
+
+            if (unitLength >= STANDARD_UNIT_LENGTH * limit) {
+                unitLength /= limit;
+
+                if (unitBase == 1) {
+                    unitBase = 5;
+                    unitScale--;
+                } else if (unitBase == 2) {
+                    unitBase = 1;
+                } else if (unitBase == 5) {
+                    unitBase = 2;
+                }
+
+            }
+
+        } else {
+
+            if (unitLength < STANDARD_UNIT_LENGTH) {
+
+                if (unitBase == 1) {
+                    unitLength *= 2;
+                    unitBase = 2;
+                } else if (unitBase == 2) {
+                    unitLength *= 2.5f;
+                    unitBase = 5;
+                } else if (unitBase == 5) {
+                    unitLength *= 2;
+                    unitBase = 1;
+                    unitScale++;
+                }
+            }
+        }
+
+        postInvalidate();
+    }
+
+    private String getUnitString(int value) {
+        int sign = (int) Math.signum(value);
+        int base = Math.abs(value) * unitBase;
+        int scale = unitScale;
+
+        while (base % 10 == 0) {
+            base /= 10;
+            scale++;
+        }
+
+        int log = 0;
+        int tempBase = base;
+        while (tempBase >= 10) {
+            tempBase /= 10;
+            log++;
+        }
+
+        if (Math.abs(scale + log) >= 4) {
+            //10000以上的或小于0.001的数用科学计数法
+            StringBuilder sb = new StringBuilder();
+            sb.append(sign * base);
+            sb.insert(1, '.');
+            sb.append("e").append(log + scale);
+            return sb.toString();
+
+        } else if (scale >= 0) {// 单位长度是整数
+            return "" + sign * base * (int) Math.pow(10, scale);
+
+        } else {//单位长度不足1且大于等于0.001的小数,直接显示
+            StringBuilder sb = new StringBuilder();
+            int dotPosition = scale + log;
+            if (dotPosition >= 0) {
+                sb.append(base);
+                sb.insert(dotPosition + 1, '.');
+            } else {
+                sb.append("0.");
+                for (int i = -1; i > dotPosition; i--) {
+                    sb.append('0');
+                }
+                sb.append(base);
+            }
+
+            if (sign < 0) {
+                sb.insert(0, '-');
+            }
+
+            return sb.toString();
+        }
+    }
+
 }
