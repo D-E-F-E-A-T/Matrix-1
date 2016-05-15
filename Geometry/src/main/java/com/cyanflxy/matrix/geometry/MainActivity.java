@@ -2,6 +2,7 @@ package com.cyanflxy.matrix.geometry;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.view.View;
 import android.view.Window;
 
@@ -9,6 +10,8 @@ import com.cyanflxy.matrix.geometry.coordinate.Coordinate2D;
 
 public class MainActivity extends Activity implements View.OnClickListener,
         Coordinate2D.OnScaleStateChangeListener {
+
+    private static final String STATE_COORDINATE = "coordinate";
 
     private Coordinate2D coordinate;
 
@@ -25,6 +28,13 @@ public class MainActivity extends Activity implements View.OnClickListener,
 
         coordinate = (Coordinate2D) findViewById(R.id.coordinate);
         coordinate.setOnScaleStateChangeListener(this);
+
+        if (savedInstanceState != null) {
+            Parcelable object = savedInstanceState.getParcelable(STATE_COORDINATE);
+            if (object != null) {
+                coordinate.setCoordinateState(object);
+            }
+        }
 
         lockCoordinateView = findViewById(R.id.lock_coordinate);
         scaleLargeView = findViewById(R.id.scale_large);
@@ -45,22 +55,28 @@ public class MainActivity extends Activity implements View.OnClickListener,
     protected void onResume() {
         super.onResume();
 
-        lockCoordinateView.setSelected(coordinate.isCoordinateLocked());
+        boolean lock = Settings.isCoordinateLock();
+        lockCoordinateView.setSelected(lock);
+        coordinate.setCoordinateLock(lock);
+
+        boolean grid = Settings.isShowDashGrid();
+        dashGridShowView.setSelected(grid);
+        coordinate.setDashGridVisible(grid);
+
         scaleLargeView.setEnabled(coordinate.canScaleLarge());
         scaleSmallView.setEnabled(coordinate.canScaleSmall());
-        dashGridShowView.setSelected(coordinate.isDashGridVisible());
     }
 
     @Override
     public void onClick(View v) {
 
         switch (v.getId()) {
-            case R.id.lock_coordinate: {
-                boolean b = v.isSelected();
-                v.setSelected(!b);
-                coordinate.setCoordinateLock(!b);
-            }
-            break;
+            case R.id.lock_coordinate:
+                boolean lock = !v.isSelected();
+                v.setSelected(lock);
+                Settings.setCoordinateLock(lock);
+                coordinate.setCoordinateLock(lock);
+                break;
             case R.id.restore_original:
                 coordinate.restoreOriginal();
                 break;
@@ -73,12 +89,12 @@ public class MainActivity extends Activity implements View.OnClickListener,
             case R.id.scale_small:
                 coordinate.setNextScaleSmall();
                 break;
-            case R.id.dash_grid: {
-                boolean b = v.isSelected();
-                v.setSelected(!b);
-                coordinate.setDashGridVisible(!b);
-            }
-            break;
+            case R.id.dash_grid:
+                boolean grid = !v.isSelected();
+                v.setSelected(grid);
+                Settings.setShowDashGrid(grid);
+                coordinate.setDashGridVisible(grid);
+                break;
             default:
                 break;
         }
@@ -93,4 +109,11 @@ public class MainActivity extends Activity implements View.OnClickListener,
     public void onScaleSmallStateChange(boolean enable) {
         scaleSmallView.setEnabled(enable);
     }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putParcelable(STATE_COORDINATE, coordinate.getCoordinateState());
+    }
+
 }

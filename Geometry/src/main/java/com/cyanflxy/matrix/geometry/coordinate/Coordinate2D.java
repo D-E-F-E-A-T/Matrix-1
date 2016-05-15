@@ -10,6 +10,8 @@ import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.PointF;
 import android.graphics.Rect;
+import android.os.Parcel;
+import android.os.Parcelable;
 import android.util.AttributeSet;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
@@ -62,7 +64,7 @@ public class Coordinate2D extends View implements View.OnTouchListener {
     // 坐标系绘图
     private Paint coordinatePaint;
     private Paint gridLinePaint;
-    private int textHeight;
+    private final int textHeight;
 
     public Coordinate2D(Context context) {
         this(context, null);
@@ -115,7 +117,8 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         if (original == null) {
             original = new PointF(w / 2f, h / 2f);
         } else {
-            original.set(w / 2f, h / 2f);
+            // original数据来自 setCoordinateState
+            original.set(width / 2 - original.x, height / 2 - original.y);
         }
 
     }
@@ -132,25 +135,11 @@ public class Coordinate2D extends View implements View.OnTouchListener {
     }
 
     /**
-     * 当前坐标系是否锁定触摸
-     */
-    public boolean isCoordinateLocked() {
-        return isCoordinateLock;
-    }
-
-    /**
      * 是否显示网格虚线
      */
     public void setDashGridVisible(boolean show) {
         drawDashGrid = show;
         invalidate();
-    }
-
-    /**
-     * 当前是否绘制网格虚线
-     */
-    public boolean isDashGridVisible() {
-        return drawDashGrid;
     }
 
     /**
@@ -717,5 +706,82 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         void onScaleLargeStateChange(boolean enable);
 
         void onScaleSmallStateChange(boolean enable);
+    }
+
+    /**
+     * 获取坐标系的状态信息
+     */
+    public Parcelable getCoordinateState() {
+        return new CoordinateState(this);
+    }
+
+    /**
+     * 恢复之前获取的坐标系状态信息
+     */
+    public void setCoordinateState(Parcelable o) {
+        CoordinateState state = (CoordinateState) o;
+
+        unitBase = state.unitBase;
+        unitScale = state.unitScale;
+        unitLength = state.unitLength;
+        original = new PointF(state.original.x, state.original.y);
+
+        invalidate();
+    }
+
+    private static class CoordinateState implements Parcelable {
+
+        private int unitBase;
+        private int unitScale;
+        private float unitLength;
+        private PointF original;
+
+        public CoordinateState(Coordinate2D coordinate) {
+            unitBase = coordinate.unitBase;
+            unitScale = coordinate.unitScale;
+            unitLength = coordinate.unitLength;
+
+            if (coordinate.original != null) {
+                PointF o = coordinate.original;
+                float dx = coordinate.width / 2 - o.x;
+                float dy = coordinate.height / 2 - o.y;
+
+                original = new PointF(dx, dy);
+            } else {
+                original = new PointF(0, 0);
+            }
+        }
+
+        protected CoordinateState(Parcel in) {
+            unitBase = in.readInt();
+            unitScale = in.readInt();
+            unitLength = in.readFloat();
+            original = in.readParcelable(PointF.class.getClassLoader());
+        }
+
+        public static final Creator<CoordinateState> CREATOR = new Creator<CoordinateState>() {
+            @Override
+            public CoordinateState createFromParcel(Parcel in) {
+                return new CoordinateState(in);
+            }
+
+            @Override
+            public CoordinateState[] newArray(int size) {
+                return new CoordinateState[size];
+            }
+        };
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeInt(unitBase);
+            dest.writeInt(unitScale);
+            dest.writeFloat(unitLength);
+            dest.writeParcelable(original, flags);
+        }
     }
 }
