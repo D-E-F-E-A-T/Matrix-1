@@ -7,6 +7,7 @@ import android.view.View;
 import android.view.Window;
 
 import com.cyanflxy.matrix.geometry.coordinate.Coordinate2D;
+import com.cyanflxy.matrix.mathematics.line.Line;
 
 public class MainActivity extends Activity implements View.OnClickListener,
         Coordinate2D.OnScaleStateChangeListener {
@@ -49,6 +50,8 @@ public class MainActivity extends Activity implements View.OnClickListener,
         findViewById(R.id.restore_original).setOnClickListener(this);
         findViewById(R.id.restore_scale).setOnClickListener(this);
 
+        Line l = Line.createByStandard(3, -1, 3);
+        coordinate.addFunction(l);
     }
 
     @Override

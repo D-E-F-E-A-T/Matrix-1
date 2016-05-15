@@ -1,4 +1,4 @@
-package com.cyanflxy.matrix.mathematics.polygons;
+package com.cyanflxy.matrix.mathematics.polygon;
 
 import android.graphics.Path;
 

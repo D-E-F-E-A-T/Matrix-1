@@ -1,4 +1,4 @@
-package com.cyanflxy.matrix.mathematics.lines;
+package com.cyanflxy.matrix.mathematics.line;
 
 import android.graphics.PointF;
 

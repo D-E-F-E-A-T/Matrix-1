@@ -10,6 +10,7 @@ import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.PointF;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
@@ -19,6 +20,10 @@ import android.view.View;
 import android.widget.Scroller;
 
 import com.cyanflxy.matrix.geometry.util.BaseUtils;
+import com.cyanflxy.matrix.mathematics.Function;
+
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * 二维坐标系
@@ -64,7 +69,11 @@ public class Coordinate2D extends View implements View.OnTouchListener {
     // 坐标系绘图
     private Paint coordinatePaint;
     private Paint gridLinePaint;
+    private Paint functionPaint;
     private final int textHeight;
+    private RectF scopeRect = new RectF();
+
+    private List<Function> functionList;
 
     public Coordinate2D(Context context) {
         this(context, null);
@@ -89,7 +98,7 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         unitLength = STANDARD_UNIT_LENGTH;
 
         coordinatePaint = new Paint();
-        coordinatePaint.setColor(Color.RED);
+        coordinatePaint.setColor(Color.rgb(5, 39, 175));//科技蓝色
         coordinatePaint.setAntiAlias(true);
         coordinatePaint.setTextSize(30);
         coordinatePaint.setStrokeWidth(1);
@@ -102,9 +111,13 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         gridLinePaint.setAlpha(128);
         gridLinePaint.setPathEffect(new DashPathEffect(new float[]{5, 5}, 0));
 
+        functionPaint = new Paint(coordinatePaint);
+
         setOnTouchListener(this);
         gestureDetector = new GestureDetector(context, simpleOnGestureListener);
         scroller = new Scroller(context);
+
+        functionList = new LinkedList<>();
     }
 
     @Override
@@ -271,10 +284,44 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         invalidate();
     }
 
+    public void addFunction(Function f) {
+        functionList.add(f);
+    }
+
+    public void removeFunction(Function f) {
+        functionList.remove(f);
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         canvas.drawColor(Color.WHITE);
         drawCoordinate(canvas);
+
+        drawFunctions(canvas);
+    }
+
+    private void drawFunctions(Canvas canvas) {
+        float ox = original.x;
+        float oy = original.y;
+        // 单位1的长度
+        float unitLength = (float) (this.unitLength / (unitBase * Math.pow(10, unitScale)));
+
+        float left = -ox / unitLength;
+        float right = (width - ox) / unitLength;
+        float top = oy / unitLength;
+        float bottom = (oy - height) / unitLength;
+
+        scopeRect.set(left, top, right, bottom);
+
+        canvas.save();
+        canvas.translate(original.x, original.y);
+        canvas.scale(1, -1);
+
+        for (Function f : functionList) {
+            f.onDraw(canvas, scopeRect, unitLength, scopeRect.width() / width, functionPaint);
+        }
+
+        canvas.restore();
     }
 
     private void drawCoordinate(Canvas canvas) {
