@@ -1,6 +1,7 @@
 package com.cyanflxy.matrix.geometry.coordinate;
 
 import android.animation.ObjectAnimator;
+import android.animation.TypeEvaluator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
@@ -24,10 +25,15 @@ import com.cyanflxy.matrix.geometry.util.BaseUtils;
  */
 public class Coordinate2D extends View implements View.OnTouchListener {
 
-    private static final int MAX_UNIT_SCALE = 32;// 缩放最大倍数
+    private static final int MAX_ANIMATION_TIME = 600;// 动画最大用时，ms
+    private static final int MIN_RESTORE_ORIGINAL_SPEED = 10;// 还原原点最小速度，px/ms
+    private static final float SCALE_ANIMATION_SPEED = 0.2f;// 执行缩放动画的速度,times/ms
+    private static final float MIN_SCALE_ANIMATION_TIMES = 1.4f;// 执行缩放动画的最小倍数
+
+    private static final int MAX_UNIT_SCALE = 5;// 缩放最大倍数
     private static final int ARROW_ANGLE = 40;//坐标轴箭头的角度
     private final int STANDARD_UNIT_LENGTH;//标准单位长度定义
-    private final int INDICATOR_LENGTH;//指示器长度
+    private final int INDICATOR_LENGTH;//指示标记长度
 
     private final int UNIT_INDICATOR_LEFT; // 单位长度指示器左边距
     private final int UNIT_INDICATOR_BOTTOM;//单位长度指示器底边距
@@ -42,17 +48,21 @@ public class Coordinate2D extends View implements View.OnTouchListener {
     private float unitLength;// 一个单位值的长度
     private PointF original;//原点位置
     private boolean drawDashGrid = true;// 是否绘制网格虚线
+    private boolean isCoordinateLock = false;//禁止触摸改变坐标系
+
+    private OnScaleStateChangeListener onScaleStateChangeListener;
+
+    // 手势
+    private GestureDetector gestureDetector;
+    private Scroller scroller;
+    private float lastPointDistance;// 缩放时，上次两指间距离
+    private ObjectAnimator animator;// 坐标轴移动动画
+    private float lastUniteLength;// 缩放动画中，上次的长度
 
     // 坐标系绘图
     private Paint coordinatePaint;
     private Paint gridLinePaint;
     private int textHeight;
-
-    // 手势
-    private Scroller scroller;
-    private ObjectAnimator animator;
-    private GestureDetector gestureDetector;
-    private float lastPointDistance;// 缩放时，上次两指间距离
 
     public Coordinate2D(Context context) {
         this(context, null);
@@ -69,8 +79,8 @@ public class Coordinate2D extends View implements View.OnTouchListener {
 
         STANDARD_UNIT_LENGTH = BaseUtils.dp2px(context, 30);
         INDICATOR_LENGTH = BaseUtils.dp2px(context, 4);
-        UNIT_INDICATOR_LEFT = BaseUtils.dp2px(context, 15);
-        UNIT_INDICATOR_BOTTOM = BaseUtils.dp2px(context, 15);
+        UNIT_INDICATOR_LEFT = BaseUtils.dp2px(context, 20);
+        UNIT_INDICATOR_BOTTOM = BaseUtils.dp2px(context, 5);
 
         unitBase = 1;
         unitScale = 0;
@@ -110,29 +120,62 @@ public class Coordinate2D extends View implements View.OnTouchListener {
 
     }
 
+    public void setOnScaleStateChangeListener(OnScaleStateChangeListener l) {
+        onScaleStateChangeListener = l;
+    }
+
+    /**
+     * 锁定坐标系的触摸调整
+     */
+    public void setCoordinateLock(boolean lock) {
+        isCoordinateLock = lock;
+    }
+
+    /**
+     * 当前坐标系是否锁定触摸
+     */
+    public boolean isCoordinateLocked() {
+        return isCoordinateLock;
+    }
+
     /**
      * 是否显示网格虚线
      */
     public void setDashGridVisible(boolean show) {
         drawDashGrid = show;
+        invalidate();
     }
 
+    /**
+     * 当前是否绘制网格虚线
+     */
+    public boolean isDashGridVisible() {
+        return drawDashGrid;
+    }
+
+    /**
+     * 能否放大
+     */
     public boolean canScaleLarge() {
-        return unitScale < MAX_UNIT_SCALE;
+        return unitScale > -MAX_UNIT_SCALE;
     }
 
+    /**
+     * 能否缩小
+     */
     public boolean canScaleSmall() {
-        return unitScale > -MAX_UNIT_SCALE;
+        return unitScale < MAX_UNIT_SCALE;
     }
 
     /**
      * 进行下一级放大
      */
     public void setNextScaleLarge() {
+        stopAnimator();
         if (unitBase == 5) {
-            setScale(2.5f);
+            startScaleAnimation(STANDARD_UNIT_LENGTH * 2.5f / unitLength);
         } else {
-            setScale(2);
+            startScaleAnimation(STANDARD_UNIT_LENGTH * 2 / unitLength);
         }
     }
 
@@ -140,11 +183,19 @@ public class Coordinate2D extends View implements View.OnTouchListener {
      * 进行下一级缩小
      */
     public void setNextScaleSmall() {
+        stopAnimator();
         if (unitBase == 2) {
-            setScale(0.4f);
+            startScaleAnimation(STANDARD_UNIT_LENGTH * 0.4f / unitLength);
         } else {
-            setScale(0.5f);
+            startScaleAnimation(STANDARD_UNIT_LENGTH * 0.5f / unitLength);
         }
+    }
+
+    /**
+     * 还原坐标缩放级别
+     */
+    public void restoreScale() {
+        startScaleAnimation(STANDARD_UNIT_LENGTH / (float) (unitLength / unitBase / Math.pow(10, unitScale)));
     }
 
     /**
@@ -152,8 +203,83 @@ public class Coordinate2D extends View implements View.OnTouchListener {
      *
      * @param scale 缩放倍数，
      */
-    public void setScale(float scale) {
-        setScale(scale, width / 2f, height / 2f);
+    private void startScaleAnimation(float scale) {
+        stopAnimator();
+
+        float times = scale < 1 ? 1 / scale : scale;
+
+        if (times < MIN_SCALE_ANIMATION_TIMES) {
+            setScale(scale, width / 2f, height / 2f);
+        } else {
+            int time = MAX_ANIMATION_TIME;
+            if (times < SCALE_ANIMATION_SPEED * MAX_ANIMATION_TIME) {
+                time = (int) (times / SCALE_ANIMATION_SPEED);
+            }
+
+            lastUniteLength = unitLength;
+            float target = unitLength * scale;
+
+            animator = ObjectAnimator.ofFloat(this, "unitLength", unitLength, target);
+            animator.setDuration(time);
+            animator.start();
+
+        }
+    }
+
+    /**
+     * 属性动画，{@link #startScaleAnimation}
+     */
+    @SuppressWarnings("unused")
+    private void setUnitLength(float length) {
+        setScale(length / lastUniteLength, width / 2f, height / 2f);
+        lastUniteLength = length;
+    }
+
+    /**
+     * 还原原点坐标
+     */
+    public void restoreOriginal() {
+        stopAnimator();
+
+        float a = original.x - width / 2;
+        float b = original.y - height / 2;
+        float d = (float) Math.hypot(a, b);
+
+        if (d < unitLength) {
+            original.set(width / 2, height / 2);
+            invalidate();
+        } else {
+            int time = MAX_ANIMATION_TIME;
+            if (d < MAX_ANIMATION_TIME * MIN_RESTORE_ORIGINAL_SPEED) {
+                time = (int) (d / MIN_RESTORE_ORIGINAL_SPEED);
+            }
+
+            final PointF start = new PointF(original.x, original.y);
+            PointF end = new PointF(width / 2, height / 2);
+
+            animator = ObjectAnimator.ofObject(this, "originalPoint", new TypeEvaluator<PointF>() {
+                @Override
+                public PointF evaluate(float fraction, PointF startValue, PointF endValue) {
+                    float x = startValue.x + (endValue.x - startValue.x) * fraction;
+                    float y = startValue.y + (endValue.y - startValue.y) * fraction;
+                    return new PointF(x, y);
+                }
+            }, start, end);
+
+            animator.setDuration(time);
+            animator.start();
+        }
+
+    }
+
+    /**
+     * 属性动画，{@link #restoreOriginal()}
+     * 针对对象的属性方法，如果不是public的，不会被调用，这是个bug？
+     */
+    @SuppressWarnings("unused")
+    public void setOriginalPoint(PointF p) {
+        original.set(p.x, p.y);
+        invalidate();
     }
 
     @Override
@@ -174,6 +300,7 @@ public class Coordinate2D extends View implements View.OnTouchListener {
 
     }
 
+    // 绘制原点
     private void drawOriginal(Canvas canvas) {
 
         float ox = original.x;
@@ -355,6 +482,9 @@ public class Coordinate2D extends View implements View.OnTouchListener {
 
     @Override
     public boolean onTouch(View v, MotionEvent event) {
+        if (isCoordinateLock) {
+            return true;
+        }
 
         int count = event.getPointerCount();
 
@@ -372,7 +502,7 @@ public class Coordinate2D extends View implements View.OnTouchListener {
 
         @Override
         public boolean onDown(MotionEvent e) {
-            stopFling();
+            stopAnimator();
             return true;
         }
 
@@ -385,6 +515,8 @@ public class Coordinate2D extends View implements View.OnTouchListener {
 
         @Override
         public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+            stopAnimator();
+
             scroller.fling((int) original.x, (int) original.y, (int) velocityX, (int) velocityY,
                     Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE);
 
@@ -406,11 +538,11 @@ public class Coordinate2D extends View implements View.OnTouchListener {
             original.set(scroller.getCurrX(), scroller.getCurrY());
             invalidate();
         } else {
-            stopFling();
+            stopAnimator();
         }
     }
 
-    private void stopFling() {
+    private void stopAnimator() {
         if (animator != null) {
             animator.cancel();
             animator = null;
@@ -421,6 +553,9 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         }
     }
 
+    /**
+     * 计算缩放手势中的缩放倍数
+     */
     private void processScaleEvent(MotionEvent event) {
 
         float x0 = event.getX(0);
@@ -452,7 +587,9 @@ public class Coordinate2D extends View implements View.OnTouchListener {
      * (cx,cy)中心在屏幕位置的坐标
      */
     private void setScale(float scale, float cx, float cy) {
-        if (scale == 1 || Math.abs(unitScale) >= MAX_UNIT_SCALE) {
+        if (scale == 1
+                || (scale < 1 && unitScale >= MAX_UNIT_SCALE)
+                || (scale > 1 && unitScale <= -MAX_UNIT_SCALE)) {
             return;
         }
 
@@ -467,9 +604,14 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         unitLength = unitLength * scale;
 
         if (scale > 1) {
+            if (onScaleStateChangeListener != null) {
+                onScaleStateChangeListener.onScaleSmallStateChange(true);
+            }
+
             float limit = unitBase == 5 ? 2.5f : 2;
 
-            if (unitLength >= STANDARD_UNIT_LENGTH * limit) {
+            while (unitLength >= STANDARD_UNIT_LENGTH * limit * 0.75f) {
+
                 unitLength /= limit;
 
                 if (unitBase == 1) {
@@ -481,11 +623,21 @@ public class Coordinate2D extends View implements View.OnTouchListener {
                     unitBase = 2;
                 }
 
+                limit = unitBase == 5 ? 2.5f : 2;
+            }
+
+            if (unitScale <= -MAX_UNIT_SCALE && unitLength <= STANDARD_UNIT_LENGTH) {
+                if (onScaleStateChangeListener != null) {
+                    onScaleStateChangeListener.onScaleLargeStateChange(false);
+                }
             }
 
         } else {
+            if (onScaleStateChangeListener != null) {
+                onScaleStateChangeListener.onScaleLargeStateChange(true);
+            }
 
-            if (unitLength < STANDARD_UNIT_LENGTH) {
+            while (unitLength <= STANDARD_UNIT_LENGTH * 0.75f) {
 
                 if (unitBase == 1) {
                     unitLength *= 2;
@@ -497,6 +649,13 @@ public class Coordinate2D extends View implements View.OnTouchListener {
                     unitLength *= 2;
                     unitBase = 1;
                     unitScale++;
+                }
+
+            }
+
+            if (unitScale >= MAX_UNIT_SCALE && unitLength >= STANDARD_UNIT_LENGTH) {
+                if (onScaleStateChangeListener != null) {
+                    onScaleStateChangeListener.onScaleSmallStateChange(false);
                 }
             }
         }
@@ -554,4 +713,9 @@ public class Coordinate2D extends View implements View.OnTouchListener {
         }
     }
 
+    public interface OnScaleStateChangeListener {
+        void onScaleLargeStateChange(boolean enable);
+
+        void onScaleSmallStateChange(boolean enable);
+    }
 }

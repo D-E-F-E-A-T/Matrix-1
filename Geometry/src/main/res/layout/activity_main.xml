@@ -10,26 +10,63 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <LinearLayout
+    <Button
+        android:id="@+id/dash_grid"
         android:layout_width="50dp"
         android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
         android:layout_alignParentRight="true"
-        android:layout_marginBottom="30dp"
-        android:layout_marginRight="30dp"
-        android:orientation="vertical">
+        android:layout_marginRight="20dp"
+        android:layout_marginTop="20dp"
+        android:text="井"
+        tools:ignore="HardcodedText" />
 
-        <Button
-            android:id="@+id/scale_large"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="+" />
+    <Button
+        android:id="@+id/lock_coordinate"
+        android:layout_width="25dp"
+        android:layout_height="50dp"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="20dp"
+        android:layout_marginLeft="20dp"
+        android:text="锁"
+        tools:ignore="HardcodedText" />
 
-        <Button
-            android:id="@+id/scale_small"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="-" />
-    </LinearLayout>
+    <Button
+        android:id="@+id/restore_original"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_alignTop="@+id/lock_coordinate"
+        android:layout_toRightOf="@+id/lock_coordinate"
+        android:text="○"
+        android:textSize="25sp"
+        tools:ignore="HardcodedText" />
+
+    <Button
+        android:id="@+id/restore_scale"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_alignTop="@+id/restore_original"
+        android:layout_toRightOf="@+id/restore_original"
+        android:text="1"
+        tools:ignore="HardcodedText" />
+
+    <Button
+        android:id="@+id/scale_small"
+        android:layout_width="50dp"
+        android:layout_height="wrap_content"
+        android:layout_alignBottom="@+id/restore_original"
+        android:layout_alignParentRight="true"
+        android:layout_marginRight="20dp"
+        android:text="-"
+        tools:ignore="HardcodedText" />
+
+    <Button
+        android:id="@+id/scale_large"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@+id/scale_small"
+        android:layout_alignLeft="@+id/scale_small"
+        android:layout_alignRight="@id/scale_small"
+        android:text="+"
+        tools:ignore="HardcodedText" />
 
 </RelativeLayout>
